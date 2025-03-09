@@ -151,7 +151,7 @@ func DownloadPodcastCoverImage(link string, podcastName string) (string, error) 
 	}
 
 	// Resize the image to 500x500 max dimensions while preserving aspect ratio
-	resizedImg := resizeImage(img, 500)
+	resizedImg := resizeImage(img, 200)
 
 	// Create the output file
 	file, err := os.Create(finalPath)

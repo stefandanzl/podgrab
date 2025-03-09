@@ -2,12 +2,15 @@ package service
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +23,7 @@ import (
 	"github.com/akhilrex/podgrab/db"
 	"github.com/akhilrex/podgrab/internal/sanitize"
 	stringy "github.com/gobeam/stringy"
+	"github.com/nfnt/resize"
 )
 
 func Download(link string, episodeTitle string, podcastName string, prefix string) (string, error) {
@@ -100,7 +104,7 @@ func CreateNfoFile(podcast *db.Podcast) error {
 		return err
 	}
 	toPersist := xml.Header + string(out)
-	return ioutil.WriteFile(finalPath, []byte(toPersist), 0644)
+	return os.WriteFile(finalPath, []byte(toPersist), 0644)
 }
 
 func DownloadPodcastCoverImage(link string, podcastName string) (string, error) {
@@ -119,31 +123,104 @@ func DownloadPodcastCoverImage(link string, podcastName string) (string, error) 
 		Logger.Errorw("Error getting response: "+link, err)
 		return "", err
 	}
+	defer resp.Body.Close()
 
 	fileName := getFileName(link, "folder", ".jpg")
 	folder := createDataFolderIfNotExists(podcastName)
-
 	finalPath := path.Join(folder, fileName)
+
+	// Check if file already exists
 	if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
 		changeOwnership(finalPath)
 		return finalPath, nil
 	}
 
-	file, err := os.Create(finalPath)
+	// Read the image data
+	imgData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		Logger.Errorw("Error creating file"+link, err)
+		Logger.Errorw("Error reading image data: "+link, err)
 		return "", err
 	}
-	defer resp.Body.Close()
-	_, erra := io.Copy(file, resp.Body)
-	//fmt.Println(size)
-	defer file.Close()
-	if erra != nil {
-		Logger.Errorw("Error saving file"+link, err)
-		return "", erra
+
+	// Decode the image
+	img, format, err := image.Decode(bytes.NewReader(imgData))
+	if err != nil {
+		Logger.Errorw("Error decoding image: "+link, err)
+		// If we can't decode, just save the original
+		return saveOriginalImage(imgData, finalPath)
 	}
+
+	// Resize the image to 500x500 max dimensions while preserving aspect ratio
+	resizedImg := resizeImage(img, 500)
+
+	// Create the output file
+	file, err := os.Create(finalPath)
+	if err != nil {
+		Logger.Errorw("Error creating file: "+link, err)
+		return "", err
+	}
+	defer file.Close()
+
+	// Encode and save the resized image
+	switch format {
+	case "jpeg", "jpg":
+		err = jpeg.Encode(file, resizedImg, &jpeg.Options{Quality: 85})
+	case "png":
+		err = png.Encode(file, resizedImg)
+	default:
+		// For unsupported formats, save original
+		return saveOriginalImage(imgData, finalPath)
+	}
+
+	if err != nil {
+		Logger.Errorw("Error encoding image: "+link, err)
+		return "", err
+	}
+
 	changeOwnership(finalPath)
 	return finalPath, nil
+}
+
+// Helper function to save the original image when we can't process it
+func saveOriginalImage(imgData []byte, finalPath string) (string, error) {
+	file, err := os.Create(finalPath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	_, err = file.Write(imgData)
+	if err != nil {
+		return "", err
+	}
+
+	changeOwnership(finalPath)
+	return finalPath, nil
+}
+
+// Helper function to resize an image while maintaining aspect ratio
+func resizeImage(img image.Image, maxDimension int) image.Image {
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	// If the image is already smaller than maxDimension, return it as is
+	if width <= maxDimension && height <= maxDimension {
+		return img
+	}
+
+	// Calculate new dimensions while preserving aspect ratio
+	var newWidth, newHeight int
+	if width > height {
+		newWidth = maxDimension
+		newHeight = int(float64(height) * float64(maxDimension) / float64(width))
+	} else {
+		newHeight = maxDimension
+		newWidth = int(float64(width) * float64(maxDimension) / float64(height))
+	}
+
+	// Resize using Lanczos resampling
+	return resize.Resize(uint(newWidth), uint(newHeight), img, resize.Lanczos3)
 }
 
 func DownloadImage(link string, episodeId string, podcastName string) (string, error) {

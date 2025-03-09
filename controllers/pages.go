@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,6 +187,38 @@ func PlayerPage(c *gin.Context) {
 	})
 
 }
+
+func PlayerPageMore(c *gin.Context) {
+
+	page, hasPage := c.GetQuery("page")
+
+	title := "Podgrab"
+	var items []db.PodcastItem
+	var totalCount int64
+	if hasPage {
+		title = "Playing Latest Episodes"
+		page, err := strconv.Atoi(page)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+
+		if err := db.GetPaginatedPodcastItems(page, 20, nil, nil, time.Time{}, &items, &totalCount); err != nil {
+			fmt.Println(err.Error())
+		}
+	}
+	setting := c.MustGet("setting").(*db.Setting)
+
+	c.JSON(http.StatusOK, gin.H{
+		"title":          title,
+		"podcastItems":   items,
+		"setting":        setting,
+		"count":          len(items),
+		"totalCount":     totalCount,
+		"downloadedOnly": true,
+		"page":           page,
+	})
+}
+
 func SettingsPage(c *gin.Context) {
 
 	setting := c.MustGet("setting").(*db.Setting)

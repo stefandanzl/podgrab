@@ -193,6 +193,7 @@ func main() {
 	router.POST("/opml", controllers.UploadOpml)
 	router.GET("/opml", controllers.GetOmpl)
 	router.GET("/player", controllers.PlayerPage)
+	router.GET("/player/more", controllers.PlayerPageMore)
 	router.GET("/rss", controllers.GetRss)
 
 	r.GET("/ws", func(c *gin.Context) {

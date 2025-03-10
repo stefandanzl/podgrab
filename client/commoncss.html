@@ -1,6 +1,6 @@
 {{define "commoncss"}}
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
 <link
   rel="stylesheet"
   href="/webassets/skeleton.min.css"
@@ -10,49 +10,57 @@
 <link rel="stylesheet" href="/webassets/fa/fontawesome.min.css" />
 <link rel="stylesheet" href="/webassets/fa/solid.min.css" />
 <link rel="stylesheet" href="/webassets/fa/regular.min.css" />
-  {{if .setting.DarkMode}}
+{{if .setting.DarkMode}}
 <style>
-
-
-  html{
+  html {
     --text-color: #eeeeee;
-    --background: #121212; 
-    --overlay:#000; 
+    --background: #121212;
+    --overlay: #000;
   }
-  </style>
-  {{else}}
-  <style>
-
-
-    html{
-      --text-color: #222;
-      --background: #fff; 
-      --overlay:#ccc; 
-    }
-    </style>
-  {{end}}
-  <style>
-  *{
+</style>
+{{else}}
+<style>
+  html {
+    --text-color: #222;
+    --background: #fff;
+    --overlay: #ccc;
+  }
+</style>
+{{end}}
+<style>
+  body {
     background: var(--background);
     color: var(--text-color);
   }
-  .button,input[type=submit],input[type=email],input[type=number],input[type=password],input[type=search],input[type=tel],input[type=text],input[type=url],select,textarea,button,a{
+  .button,
+  input[type="submit"],
+  input[type="email"],
+  input[type="number"],
+  input[type="password"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="text"],
+  input[type="url"],
+  select,
+  textarea,
+  button,
+  a {
     background-color: inherit;
     color: inherit;
   }
 </style>
 
 <style>
-@media (min-width: 1400px){
-.container {
-    max-width: 1320px;
-}
-}
-@media (min-width: 1200px){
-.container {
-    max-width: 1140px;
-}
-}
+  @media (min-width: 1400px) {
+    .container {
+      max-width: 1320px;
+    }
+  }
+  @media (min-width: 1200px) {
+    .container {
+      max-width: 1140px;
+    }
+  }
   .header {
     margin-top: 6rem;
     text-align: center;
@@ -193,7 +201,7 @@
   }
 </style>
 <script>
-   function onImageError(image) {
+  function onImageError(image) {
     image.onerror = "";
     image.src = "/webassets/blank.png";
     return true;

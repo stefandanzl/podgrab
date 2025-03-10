@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://unpkg.com/primevue/umd/primevue.min.js"></script>
+
     <title>{{.title}} - PodGrab</title>
     {{template "commoncss" .}}
 
@@ -81,7 +83,7 @@
         left: 0;
         right: 0;
         z-index: 1000;
-        background-color: white;
+        background: var(--background);
         box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
         padding: 15px;
         display: grid;
@@ -324,7 +326,7 @@
           >
             <div
               class="episode-image"
-              :style="{ backgroundImage: `url(${item.LocalImage || item.Image})` }"
+              :style="{ backgroundImage: `url(${getPodcastImage(item)})` }"
             ></div>
             <div class="episode-details">
               <div class="episode-title">${item.Title}</div>
@@ -628,6 +630,9 @@
                 self.isLoading = false;
               });
           },
+          getPodcastImage(episode){
+            return "/podcasts/"+String(episode.Podcast.ID)+"/image"
+          },
           playSong(index) {
             Amplitude.playSongAtIndex(index);
             this.currentSongIndex = index;
@@ -702,10 +707,7 @@
           },
           getSongsFromItems(items) {
             return items.map(x => {
-              var image = x.LocalImage;
-              if (!image) {
-                image = x.Image;
-              }
+              var image = "/podcasts/" + x.Podcast.ID + "/image"
               var toReturn = {
                 id: x.ID,
                 name: x.Title,

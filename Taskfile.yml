@@ -1,6 +1,6 @@
 # https://taskfile.dev
 
-version: '3'
+version: "3"
 
 vars:
   GREETING: Hello, World!
@@ -8,5 +8,15 @@ vars:
 tasks:
   default:
     cmds:
-      - echo "{{.GREETING}}"
-    silent: true
+      - task: build
+      - task: run
+
+  build:
+    env:
+      CGO_ENABLED: 0
+    cmds:
+      - go build ./...
+
+  run:
+    cmds:
+      - ./podgrab.exe

@@ -181,6 +181,81 @@ func DownloadPodcastCoverImage(link string, podcastName string) (string, error) 
 	return finalPath, nil
 }
 
+func DownloadImage(link string, episodeId string, podcastName string) (string, error) {
+	if link == "" {
+		return "", errors.New("Download path empty")
+	}
+	client := httpClient()
+	req, err := getRequest(link)
+	if err != nil {
+		Logger.Errorw("Error creating request: "+link, err)
+		return "", err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		Logger.Errorw("Error getting response: "+link, err)
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	fileName := getFileName(link, episodeId, ".jpg")
+	folder := createDataFolderIfNotExists(podcastName)
+	imageFolder := createFolder("images", folder)
+	finalPath := path.Join(imageFolder, fileName)
+
+	// Check if file already exists
+	if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
+		changeOwnership(finalPath)
+		return finalPath, nil
+	}
+
+	// Read the image data
+	imgData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		Logger.Errorw("Error reading image data: "+link, err)
+		return "", err
+	}
+
+	// Decode the image
+	img, format, err := image.Decode(bytes.NewReader(imgData))
+	if err != nil {
+		Logger.Errorw("Error decoding image: "+link, err)
+		// If we can't decode, just save the original
+		return saveOriginalImage(imgData, finalPath)
+	}
+
+	// Resize the image to 500x500 max dimensions while preserving aspect ratio
+	resizedImg := resizeImage(img, 500)
+
+	// Create the output file
+	file, err := os.Create(finalPath)
+	if err != nil {
+		Logger.Errorw("Error creating file: "+link, err)
+		return "", err
+	}
+	defer file.Close()
+
+	// Encode and save the resized image
+	switch format {
+	case "jpeg", "jpg":
+		err = jpeg.Encode(file, resizedImg, &jpeg.Options{Quality: 85})
+	case "png":
+		err = png.Encode(file, resizedImg)
+	default:
+		// For unsupported formats, save original
+		return saveOriginalImage(imgData, finalPath)
+	}
+
+	if err != nil {
+		Logger.Errorw("Error encoding image: "+link, err)
+		return "", err
+	}
+
+	changeOwnership(finalPath)
+	return finalPath, nil
+}
+
 // Helper function to save the original image when we can't process it
 func saveOriginalImage(imgData []byte, finalPath string) (string, error) {
 	file, err := os.Create(finalPath)
@@ -223,50 +298,6 @@ func resizeImage(img image.Image, maxDimension int) image.Image {
 	return resize.Resize(uint(newWidth), uint(newHeight), img, resize.Lanczos3)
 }
 
-func DownloadImage(link string, episodeId string, podcastName string) (string, error) {
-	if link == "" {
-		return "", errors.New("Download path empty")
-	}
-	client := httpClient()
-	req, err := getRequest(link)
-	if err != nil {
-		Logger.Errorw("Error creating request: "+link, err)
-		return "", err
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		Logger.Errorw("Error getting response: "+link, err)
-		return "", err
-	}
-
-	fileName := getFileName(link, episodeId, ".jpg")
-	folder := createDataFolderIfNotExists(podcastName)
-	imageFolder := createFolder("images", folder)
-	finalPath := path.Join(imageFolder, fileName)
-
-	if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
-		changeOwnership(finalPath)
-		return finalPath, nil
-	}
-
-	file, err := os.Create(finalPath)
-	if err != nil {
-		Logger.Errorw("Error creating file"+link, err)
-		return "", err
-	}
-	defer resp.Body.Close()
-	_, erra := io.Copy(file, resp.Body)
-	//fmt.Println(size)
-	defer file.Close()
-	if erra != nil {
-		Logger.Errorw("Error saving file"+link, err)
-		return "", erra
-	}
-	changeOwnership(finalPath)
-	return finalPath, nil
-
-}
 func changeOwnership(path string) {
 	uid, err1 := strconv.Atoi(os.Getenv("PUID"))
 	gid, err2 := strconv.Atoi(os.Getenv("PGID"))

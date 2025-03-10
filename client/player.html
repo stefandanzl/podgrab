@@ -495,413 +495,438 @@
     <script src="/webassets/amplitude.min.js"></script>
 
     <script>
-      var app = new Vue({
-        delimiters: ["${", "}"],
-        el: "#app",
-        data: {
-          speed: 1,
-          speedOptions: [0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3],
-          songLoaded: [],
-          socket: null,
-          allItems: {{.podcastItems}},
-          isPlayerVisible: false,
-          currentSongIndex: -1,
-          isPlaying: false,
-          isMuted: false,
-          volume: 50,
-          currentTime: 0,
-          duration: 0,
-          playedPercentage: 0,
-          isLoading: false,
-          loadingMore: false,
-          page: 1,
-          markedAsPlayed: []
-        },
-        computed: {
-          songs() {
-            return this.getSongsFromItems(this.allItems);
-          },
-          currentSong() {
-            if (this.currentSongIndex >= 0 && this.songs.length > this.currentSongIndex) {
-              return this.songs[this.currentSongIndex];
-            }
-            return null;
-          }
-        },
-        watch: {
-          speed(newSpeed) {
-            Amplitude.setPlaybackSpeed(newSpeed);
-            if (localStorage) {
-              localStorage.speed = newSpeed;
-            }
-          }
-        },
-        created() {
-          const self = this;
-          this.socket = getWebsocketConnection(
-            function(event) {
-              const message = getWebsocketMessage("RegisterPlayer", "");
-              self.socket.send(message);
-            },
-            x => {
-              if (!x.data) {
+                var app = new Vue({
+                  delimiters: ["${", "}"],
+                  el: "#app",
+                  data: {
+                    speed: 1,
+                    speedOptions: [0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3],
+                    songLoaded: [],
+                    socket: null,
+                    allItems: {{.podcastItems}},
+                    isPlayerVisible: false,
+                    currentSongIndex: -1,
+                    isPlaying: false,
+                    isMuted: false,
+                    volume: 50,
+                    currentTime: 0,
+                    duration: 0,
+                    playedPercentage: 0,
+                    isLoading: false,
+                    loadingMore: false,
+                    page: 1,
+                    markedAsPlayed: [],
+
+                    audioElement: null,
+                  },
+                  computed: {
+                    songs() {
+                      return this.getSongsFromItems(this.allItems);
+                    },
+                    currentSong() {
+                      if (this.currentSongIndex >= 0 && this.songs.length > this.currentSongIndex) {
+                        return this.songs[this.currentSongIndex];
+                      }
+                      return null;
+                    }
+                  },
+                  watch: {
+                    speed(newSpeed) {
+                      Amplitude.setPlaybackSpeed(newSpeed);
+                      if (localStorage) {
+                        localStorage.speed = newSpeed;
+                      }
+                    }
+                  },
+                  created() {
+                    const self = this;
+                    this.socket = getWebsocketConnection(
+                      function(event) {
+                        const message = getWebsocketMessage("RegisterPlayer", "");
+                        self.socket.send(message);
+                      },
+                      x => {
+                        if (!x.data) {
+                          return;
+                        }
+                        payload = JSON.parse(x.data);
+                        if (payload.messageType == "Enqueue") {
+                          newItems = JSON.parse(payload.payload);
+                          newItems.forEach(x => { this.allItems.push(x) });
+                          newSongs = self.getSongsFromItems(newItems);
+                          newSongs.forEach(x => { Amplitude.addSong(x) });
+                        }
+                      }
+                    );
+
+                    // Check localStorage for previously played items
+                    if (localStorage && localStorage.songTimes) {
+                      const songTimes = JSON.parse(localStorage.songTimes);
+                      if (Object.keys(songTimes).length > 0) {
+                        this.isPlayerVisible = true;
+                      }
+                    }
+
+                    // Add scroll event listener for infinite scroll
+                    window.addEventListener('scroll', this.handleScroll);
+                  },
+                  beforeDestroy() {
+                    window.removeEventListener('scroll', this.handleScroll);
+                  },
+                  mounted() {
+                    var volume = 50;
+                    if (localStorage && localStorage.playerVolume) {
+                      volume = parseInt(localStorage.playerVolume);
+                      this.volume = volume;
+                    }
+
+                    const self = this;
+
+                    // Create a single audio element
+      this.audioElement = new Audio();
+
+      // Set up event listeners
+      this.audioElement.addEventListener('timeupdate', this.handleTimeUpdate);
+      this.audioElement.addEventListener('ended', this.handleEnded);
+      this.audioElement.addEventListener('play', () => this.isPlaying = true);
+      this.audioElement.addEventListener('pause', () => this.isPlaying = false);
+      this.audioElement.addEventListener('loadedmetadata', () => {
+        this.duration = this.audioElement.duration;
+      });
+
+      // Set initial volume
+      this.setVolume(this.volume);
+
+      // Load last played track if available
+      this.loadLastPlayedTrack();
+                  },
+                  methods: {
+                    handleScroll() {
+                      if (this.isLoading || this.loadingMore) return;
+
+                      const scrollHeight = document.documentElement.scrollHeight;
+                      const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+                      const clientHeight = document.documentElement.clientHeight;
+
+                      if (scrollTop + clientHeight >= scrollHeight - 200) {
+                        this.loadMoreItems();
+                      }
+                    },
+                    loadMoreItems() {
+                      this.isLoading = true;
+                      this.page += 1;
+
+                      const self = this; // Store reference to component
+
+                      axios
+                        .get(encodeURI("/player/more?page=" + this.page))
+                        .then(function(response) {
+                          // Use the stored reference
+                          if (response.data && response.data.podcastItems) {
+                            self.allItems = [...self.allItems, ...response.data.podcastItems];
+
+                            // Also add the new songs to Amplitude player
+                            const newSongs = self.getSongsFromItems(response.data.podcastItems);
+                            newSongs.forEach(song => Amplitude.addSong(song));
+                          }
+                        })
+                        .catch(function(error) {
+                          console.error("Error loading more items:", error);
+                        })
+                        .finally(function() {
+                          // Set loading state back to false
+                          self.isLoading = false;
+                        });
+                    },
+                    getPodcastImage(episode){
+                      return "/podcasts/"+String(episode.Podcast.ID)+"/image"
+                    },
+
+
+
+
+          playSong(index) {
+              if (this.currentSongIndex === index && this.isPlaying) {
+                this.pause();
                 return;
               }
-              payload = JSON.parse(x.data);
-              if (payload.messageType == "Enqueue") {
-                newItems = JSON.parse(payload.payload);
-                newItems.forEach(x => { this.allItems.push(x) });
-                newSongs = self.getSongsFromItems(newItems);
-                newSongs.forEach(x => { Amplitude.addSong(x) });
+
+              const song = this.allItems[index];
+              const audioUrl = "/podcastitems/" + song.ID + "/file";
+
+              // If changing tracks
+              if (this.currentSongIndex !== index) {
+                this.currentSongIndex = index;
+                this.audioElement.src = audioUrl;
+                this.isPlayerVisible = true;
+
+                // Check if we have a saved position
+                const savedTime = this.getSavedSongTime(song.ID);
+                if (savedTime > 0) {
+                  this.audioElement.currentTime = savedTime;
+                }
               }
-            }
-          );
 
-          // Check localStorage for previously played items
-          if (localStorage && localStorage.songTimes) {
-            const songTimes = JSON.parse(localStorage.songTimes);
-            if (Object.keys(songTimes).length > 0) {
-              this.isPlayerVisible = true;
-            }
-          }
+              this.audioElement.play();
+            },
 
-          // Add scroll event listener for infinite scroll
-          window.addEventListener('scroll', this.handleScroll);
-        },
-        beforeDestroy() {
-          window.removeEventListener('scroll', this.handleScroll);
-        },
-        mounted() {
-          var volume = 50;
-          if (localStorage && localStorage.playerVolume) {
-            volume = parseInt(localStorage.playerVolume);
-            this.volume = volume;
-          }
+            pause() {
+              this.audioElement.pause();
+            },
 
-          const self = this;
-          Amplitude.init({
-            "songs": this.songs,
-            "start_song": 0,
-            "volume": volume,
-            "callbacks": {
-              'play': function() {
-                self.isPlaying = true;
-                self.isPlayerVisible = true;
-              },
-              'pause': function() {
-                self.isPlaying = false;
-              },
-              'timeupdate': function() {
-                const secs = Math.floor(Amplitude.getSongPlayedSeconds());
-                self.currentTime = secs;
-                self.duration = Amplitude.getSongDuration();
-                self.playedPercentage = Amplitude.getSongPlayedPercentage();
+            play() {
+              this.audioElement.play();
+            },
 
-                if (secs % 10 === 0) {
-                  const song = Amplitude.getActiveSongMetadata();
-                  if (Amplitude.getSongPlayedPercentage() > 20) {
-                    self.markSongAsPlayed(song.id);
+            togglePlay() {
+              if (this.isPlaying) {
+                this.pause();
+              } else {
+                this.play();
+              }
+            },
+
+            nextSong() {
+              const nextIndex = (this.currentSongIndex + 1) % this.allItems.length;
+              this.playSong(nextIndex);
+            },
+
+            prevSong() {
+              const prevIndex = (this.currentSongIndex - 1 + this.allItems.length) % this.allItems.length;
+              this.playSong(prevIndex);
+            },
+
+            setVolume(volume) {
+              this.volume = volume;
+              this.audioElement.volume = volume / 100;
+              this.isMuted = (volume === 0);
+
+              if (localStorage) {
+                localStorage.playerVolume = volume.toString();
+              }
+            },
+
+            toggleMute() {
+              if (this.isMuted) {
+                this.setVolume(this.lastVolume || 50);
+              } else {
+                this.lastVolume = this.volume;
+                this.setVolume(0);
+              }
+            },
+
+            seekTo(event) {
+              const container = event.currentTarget;
+              const containerWidth = container.clientWidth;
+              const clickPosition = event.offsetX;
+              const percentage = (clickPosition / containerWidth) * 100;
+              const newTime = (percentage / 100) * this.duration;
+
+              this.audioElement.currentTime = newTime;
+            },
+
+            handleTimeUpdate() {
+              this.currentTime = this.audioElement.currentTime;
+              this.playedPercentage = (this.currentTime / this.duration) * 100;
+
+              // Save progress every 10 seconds
+              if (Math.floor(this.currentTime) % 10 === 0) {
+                if (this.playedPercentage > 20) {
+                  this.markSongAsPlayed(this.currentSong.id);
+                }
+                if (this.playedPercentage > 95) {
+                  this.removeSongTime(this.currentSong.id);
+                } else {
+                  this.saveSongTime(this.currentSong.id, this.currentTime);
+                }
+              }
+            },
+
+            handleEnded() {
+              this.nextSong();
+            },
+
+            replayThirty() {
+              this.audioElement.currentTime = Math.max(0, this.currentTime - 30);
+            },
+
+            forwardThirty() {
+              this.audioElement.currentTime = Math.min(this.duration, this.currentTime + 30);
+            },
+
+            changeSpeed() {
+              const currentSpeedIndex = this.speedOptions.indexOf(this.speed);
+              const nextIndex = (currentSpeedIndex === -1 || currentSpeedIndex === this.speedOptions.length - 1) ? 0 : currentSpeedIndex + 1;
+              this.speed = this.speedOptions[nextIndex];
+              this.audioElement.playbackRate = this.speed;
+
+              if (localStorage) {
+                localStorage.speed = this.speed;
+              }
+            },
+                    formatTime(seconds) {
+                      if (!seconds) return "00:00";
+
+                      const hours = Math.floor(seconds / 3600);
+                      const minutes = Math.floor((seconds % 3600) / 60);
+                      const secs = Math.floor(seconds % 60);
+
+                      if (hours > 0) {
+                        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                      }
+                      return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                    },
+                    getSongsFromItems(items) {
+                      return items.map(x => {
+                        var image = "/podcasts/" + x.Podcast.ID + "/image"
+                        var toReturn = {
+                          id: x.ID,
+                          name: x.Title,
+                          url: "/podcastitems/" + x.ID + "/file",
+                          cover_art_url: image,
+                          artist: x.Podcast.Title,
+                          summary: x.Summary,
+                          album: new Date(x.PubDate.substr(0, 10)).toDateString()
+                        };
+                        if (!toReturn.url) {
+                          toReturn.url = x.FileURL;
+                        }
+                        return toReturn;
+                      });
+                    },
+                    getFormattedLastEpisodeDate(item) {
+                      var dt = new Date(Date.parse(item.PubDate.substr(0, 10)));
+                      return dt.toDateString();
+                    },
+                    formatDuration(total) {
+                      if (total <= 0) {
+                        return "";
+                      }
+                      var mins = Math.floor(total / 60);
+                      var secs = Math.floor(total % 60);
+                      var hrs = 0;
+                      if (mins >= 60) {
+                        hrs = Math.floor(mins / 60);
+                        mins = mins % 60;
+                      }
+
+                      if (hrs > 0) {
+                        return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                      }
+                      return `${mins}:${secs.toString().padStart(2, '0')}`;
+                    },
+                    removeSongTime(songId) {
+                      if (localStorage) {
+                        var songTimes = localStorage.songTimes;
+                        if (!songTimes) {
+                          songTimes = {};
+                        } else {
+                          songTimes = JSON.parse(localStorage.songTimes);
+                        }
+                        if (songTimes.hasOwnProperty(songId)) {
+                          delete songTimes[songId];
+                          localStorage.songTimes = JSON.stringify(songTimes);
+                        }
+                      }
+                    },
+                    saveSongTime(songId, time) {
+                      if (localStorage) {
+                        var songTimes = localStorage.songTimes;
+                        if (!songTimes) {
+                          songTimes = {};
+                        } else {
+                          songTimes = JSON.parse(localStorage.songTimes);
+                        }
+                        songTimes[songId] = time;
+                        localStorage.songTimes = JSON.stringify(songTimes);
+                      }
+                    },
+                    getSavedSongTime() {
+                      if (localStorage) {
+                        var song = Amplitude.getActiveSongMetadata();
+                        var songTimes = localStorage.songTimes;
+                        if (!songTimes) {
+                          songTimes = {};
+                        } else {
+                          songTimes = JSON.parse(localStorage.songTimes);
+                        }
+                        if (songTimes.hasOwnProperty(song.id)) {
+                          return songTimes[song.id];
+                        }
+                      }
+                      return 0;
+                    },
+                    markSongAsPlayed(id) {
+                      if (this.markedAsPlayed.indexOf(id) !== -1) {
+                        return;
+                      }
+                      this.markedAsPlayed.push(id);
+                      axios
+                        .get("/podcastitems/" + id + "/markPlayed", {
+                          isPlayed: true,
+                        })
+                        .then(function(response) {})
+                        .catch(function(error) {})
+                        .then(function() {});
+                      return false;
+                    },
+                    getEpisodeProgress(episodeId) {
+                      if (!localStorage || !localStorage.songTimes) {
+                        return 0;
+                      }
+
+                      try {
+                        const songTimes = JSON.parse(localStorage.songTimes);
+                        if (!songTimes[episodeId]) {
+                          return 0;
+                        }
+
+                        // Find the episode to get its duration
+                        const episode = this.allItems.find(item => item.ID === episodeId);
+                        if (!episode || !episode.Duration || episode.Duration <= 0) {
+                          return 0;
+                        }
+
+                        // Calculate percentage
+                        const currentTime = songTimes[episodeId];
+                        const percentage = (currentTime / episode.Duration) * 100;
+
+                        // Cap at 100%
+                        return Math.min(percentage, 100);
+                      } catch (error) {
+                        console.error('Error calculating episode progress:', error);
+                        return 0;
+                      }
+                    },
+
+                    isEpisodeFinished(episodeId) {
+                      const progress = this.getEpisodeProgress(episodeId);
+                      return progress >= 95; // Consider 95% or more as finished
+                    },
+
+                    getEpisodeProgressText(episodeId) {
+                      if (this.isEpisodeFinished(episodeId)) {
+                        return 'Finished';
+                      }
+
+                      if (!localStorage || !localStorage.songTimes) {
+                        return '00:00';
+                      }
+
+                      try {
+                        const songTimes = JSON.parse(localStorage.songTimes);
+                        if (!songTimes[episodeId]) {
+                          return '00:00';
+                        }
+
+                        // Format the time
+                        return this.formatTime(songTimes[episodeId]);
+                      } catch (error) {
+                        return '00:00';
+                      }
+                    }
                   }
-                  if (Amplitude.getSongPlayedPercentage() > 95) {
-                    self.removeSongTime(song.id);
-                  } else {
-                    self.saveSongTime(song.id, secs);
-                  }
-                }
-              },
-              'song_change': function() {
-                self.currentSongIndex = Amplitude.getActiveIndex();
-
-                if (localStorage && localStorage.playerVolume) {
-                  volume = parseInt(localStorage.playerVolume);
-                  Amplitude.setVolume(volume);
-                }
-
-                // Get saved time for the song
-                const time = self.getSavedSongTime();
-                if (time > 0) {
-                  Amplitude.skipTo(time, self.currentSongIndex);
-                }
-              },
-              'volumechange': function() {
-                volume = Amplitude.getVolume();
-                self.volume = volume;
-                if (localStorage) {
-                  localStorage.playerVolume = volume.toString();
-                }
-              },
-              'initialized': function() {
-                if (localStorage && localStorage.speed) {
-                  self.speed = parseFloat(localStorage.speed);
-                }
-              }
-            }
-          });
-        },
-        methods: {
-          handleScroll() {
-            if (this.isLoading || this.loadingMore) return;
-
-            const scrollHeight = document.documentElement.scrollHeight;
-            const scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
-            const clientHeight = document.documentElement.clientHeight;
-
-            if (scrollTop + clientHeight >= scrollHeight - 200) {
-              this.loadMoreItems();
-            }
-          },
-          loadMoreItems() {
-            this.isLoading = true;
-            this.page += 1;
-
-            const self = this; // Store reference to component
-
-            axios
-              .get(encodeURI("/player/more?page=" + this.page))
-              .then(function(response) {
-                // Use the stored reference
-                if (response.data && response.data.podcastItems) {
-                  self.allItems = [...self.allItems, ...response.data.podcastItems];
-
-                  // Also add the new songs to Amplitude player
-                  const newSongs = self.getSongsFromItems(response.data.podcastItems);
-                  newSongs.forEach(song => Amplitude.addSong(song));
-                }
-              })
-              .catch(function(error) {
-                console.error("Error loading more items:", error);
-              })
-              .finally(function() {
-                // Set loading state back to false
-                self.isLoading = false;
-              });
-          },
-          getPodcastImage(episode){
-            return "/podcasts/"+String(episode.Podcast.ID)+"/image"
-          },
-          playSong(index) {
-            Amplitude.playSongAtIndex(index);
-            this.currentSongIndex = index;
-            this.isPlayerVisible = true;
-            this.isPlaying = true;
-          },
-          togglePlay() {
-            if (this.isPlaying) {
-              Amplitude.pause();
-            } else {
-              Amplitude.play();
-            }
-            this.isPlaying = !this.isPlaying;
-          },
-          prevSong() {
-            Amplitude.prev();
-          },
-          nextSong() {
-            Amplitude.next();
-          },
-          replayThirty() {
-            const newTime = Math.max(0, this.currentTime - 30);
-            Amplitude.skipTo(newTime, this.currentSongIndex);
-          },
-          forwardThirty() {
-            const newTime = Math.min(this.duration, this.currentTime + 30);
-            Amplitude.skipTo(newTime, this.currentSongIndex);
-          },
-          seekTo(event) {
-            const container = event.currentTarget;
-            const containerWidth = container.clientWidth;
-            const clickPosition = event.offsetX;
-            const percentage = (clickPosition / containerWidth) * 100;
-            const newTime = (percentage / 100) * this.duration;
-
-            Amplitude.skipTo(newTime, this.currentSongIndex);
-          },
-          toggleMute() {
-            if (this.isMuted) {
-              Amplitude.setVolume(this.volume);
-            } else {
-              Amplitude.setVolume(0);
-            }
-            this.isMuted = !this.isMuted;
-          },
-          changeVolume(event) {
-            const container = event.currentTarget;
-            const containerWidth = container.clientWidth;
-            const clickPosition = event.offsetX;
-            const newVolume = Math.round((clickPosition / containerWidth) * 100);
-
-            this.volume = newVolume;
-            Amplitude.setVolume(newVolume);
-            this.isMuted = (newVolume === 0);
-          },
-          changeSpeed() {
-            const currentSpeedIndex = this.speedOptions.indexOf(this.speed);
-            const nextIndex = (currentSpeedIndex === -1 || currentSpeedIndex === this.speedOptions.length - 1) ? 0 : currentSpeedIndex + 1;
-            this.speed = this.speedOptions[nextIndex];
-          },
-          formatTime(seconds) {
-            if (!seconds) return "00:00";
-
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            const secs = Math.floor(seconds % 60);
-
-            if (hours > 0) {
-              return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            }
-            return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-          },
-          getSongsFromItems(items) {
-            return items.map(x => {
-              var image = "/podcasts/" + x.Podcast.ID + "/image"
-              var toReturn = {
-                id: x.ID,
-                name: x.Title,
-                url: "/podcastitems/" + x.ID + "/file",
-                cover_art_url: image,
-                artist: x.Podcast.Title,
-                summary: x.Summary,
-                album: new Date(x.PubDate.substr(0, 10)).toDateString()
-              };
-              if (!toReturn.url) {
-                toReturn.url = x.FileURL;
-              }
-              return toReturn;
-            });
-          },
-          getFormattedLastEpisodeDate(item) {
-            var dt = new Date(Date.parse(item.PubDate.substr(0, 10)));
-            return dt.toDateString();
-          },
-          formatDuration(total) {
-            if (total <= 0) {
-              return "";
-            }
-            var mins = Math.floor(total / 60);
-            var secs = Math.floor(total % 60);
-            var hrs = 0;
-            if (mins >= 60) {
-              hrs = Math.floor(mins / 60);
-              mins = mins % 60;
-            }
-
-            if (hrs > 0) {
-              return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            }
-            return `${mins}:${secs.toString().padStart(2, '0')}`;
-          },
-          removeSongTime(songId) {
-            if (localStorage) {
-              var songTimes = localStorage.songTimes;
-              if (!songTimes) {
-                songTimes = {};
-              } else {
-                songTimes = JSON.parse(localStorage.songTimes);
-              }
-              if (songTimes.hasOwnProperty(songId)) {
-                delete songTimes[songId];
-                localStorage.songTimes = JSON.stringify(songTimes);
-              }
-            }
-          },
-          saveSongTime(songId, time) {
-            if (localStorage) {
-              var songTimes = localStorage.songTimes;
-              if (!songTimes) {
-                songTimes = {};
-              } else {
-                songTimes = JSON.parse(localStorage.songTimes);
-              }
-              songTimes[songId] = time;
-              localStorage.songTimes = JSON.stringify(songTimes);
-            }
-          },
-          getSavedSongTime() {
-            if (localStorage) {
-              var song = Amplitude.getActiveSongMetadata();
-              var songTimes = localStorage.songTimes;
-              if (!songTimes) {
-                songTimes = {};
-              } else {
-                songTimes = JSON.parse(localStorage.songTimes);
-              }
-              if (songTimes.hasOwnProperty(song.id)) {
-                return songTimes[song.id];
-              }
-            }
-            return 0;
-          },
-          markSongAsPlayed(id) {
-            if (this.markedAsPlayed.indexOf(id) !== -1) {
-              return;
-            }
-            this.markedAsPlayed.push(id);
-            axios
-              .get("/podcastitems/" + id + "/markPlayed", {
-                isPlayed: true,
-              })
-              .then(function(response) {})
-              .catch(function(error) {})
-              .then(function() {});
-            return false;
-          },
-          getEpisodeProgress(episodeId) {
-            if (!localStorage || !localStorage.songTimes) {
-              return 0;
-            }
-
-            try {
-              const songTimes = JSON.parse(localStorage.songTimes);
-              if (!songTimes[episodeId]) {
-                return 0;
-              }
-
-              // Find the episode to get its duration
-              const episode = this.allItems.find(item => item.ID === episodeId);
-              if (!episode || !episode.Duration || episode.Duration <= 0) {
-                return 0;
-              }
-
-              // Calculate percentage
-              const currentTime = songTimes[episodeId];
-              const percentage = (currentTime / episode.Duration) * 100;
-
-              // Cap at 100%
-              return Math.min(percentage, 100);
-            } catch (error) {
-              console.error('Error calculating episode progress:', error);
-              return 0;
-            }
-          },
-
-          isEpisodeFinished(episodeId) {
-            const progress = this.getEpisodeProgress(episodeId);
-            return progress >= 95; // Consider 95% or more as finished
-          },
-
-          getEpisodeProgressText(episodeId) {
-            if (this.isEpisodeFinished(episodeId)) {
-              return 'Finished';
-            }
-
-            if (!localStorage || !localStorage.songTimes) {
-              return '00:00';
-            }
-
-            try {
-              const songTimes = JSON.parse(localStorage.songTimes);
-              if (!songTimes[episodeId]) {
-                return '00:00';
-              }
-
-              // Format the time
-              return this.formatTime(songTimes[episodeId]);
-            } catch (error) {
-              return '00:00';
-            }
-          }
-        }
-      });
+                });
     </script>
   </body>
 </html>

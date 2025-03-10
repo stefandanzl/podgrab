@@ -27,6 +27,7 @@
         border-bottom: 1px solid #eee;
         cursor: pointer;
         transition: background-color 0.2s;
+        align-items: center;
       }
 
       .episode:hover {
@@ -73,6 +74,45 @@
         color: #777;
         align-self: center;
         margin-left: 10px;
+        width: 10ch;
+      }
+
+      /* Episode progress bar styles */
+      .episode-progress-container {
+        flex-shrink: 0;
+        width: 100px;
+        height: 20px;
+        background-color: #f0f0f0;
+        border-radius: 3px;
+        margin: 0 10px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .episode-progress-bar {
+        height: 100%;
+        background-color: #00a0ff;
+        width: 0%;
+        transition: width 0.3s ease;
+      }
+
+      .episode-progress-text {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        color: #333;
+        font-weight: bold;
+        text-shadow: 0 0 2px rgba(255, 255, 255, 0.7);
+      }
+
+      .episode-finished {
+        background-color: #4caf50;
       }
 
       /* Fixed player styles */
@@ -280,6 +320,13 @@
         text-align: center;
       }
 
+      /* Loading indicator */
+      .loading-more {
+        text-align: center;
+        padding: 20px;
+        color: #777;
+      }
+
       /* Media queries for responsive design */
       @media (max-width: 768px) {
         .fixed-player {
@@ -288,6 +335,11 @@
 
         .player-right {
           display: none;
+        }
+
+        .episode-progress-container {
+          width: 70px;
+          margin: 0 5px;
         }
       }
 
@@ -306,11 +358,20 @@
         .player-center {
           order: -1;
         }
+
+        .episode {
+          flex-wrap: wrap;
+        }
+
+        .episode-progress-container {
+          width: 100px;
+          margin: 5px 0;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="container">
+    <div class="container" :class="{ 'player-active': isPlayerVisible }">
       {{template "navbar" .}}
 
       <br />{{$setting := .setting}}
@@ -335,6 +396,19 @@
                 ${getFormattedLastEpisodeDate(item)}
               </div>
             </div>
+
+            <!-- Progress Bar -->
+            <div class="episode-progress-container">
+              <div
+                class="episode-progress-bar"
+                :class="{ 'episode-finished': isEpisodeFinished(item.ID) }"
+                :style="{ width: `${getEpisodeProgress(item.ID)}%` }"
+              ></div>
+              <div class="episode-progress-text">
+                ${getEpisodeProgressText(item.ID)}
+              </div>
+            </div>
+
             <div class="episode-duration">${formatDuration(item.Duration)}</div>
           </div>
 
@@ -368,46 +442,19 @@
           <!-- Center section: Controls and Timeline -->
           <div class="player-center">
             <div class="player-controls">
-              <div
-                class="control-button"
-                @click="replayThirty"
-                title="Replay 30 seconds"
-              >
-                <span>-30</span>
-              </div>
-              <div
-                class="control-button"
-                id="previous"
-                @click="prevSong"
-                title="Previous track"
-              ></div>
-              <div
-                class="control-button"
-                id="play-pause"
-                :class="isPlaying ? 'amplitude-playing' : 'amplitude-paused'"
-                @click="togglePlay"
-                title="Play/Pause"
-              ></div>
-              <div
-                class="control-button"
-                id="next"
-                @click="nextSong"
-                title="Next track"
-              ></div>
-              <div
-                class="control-button"
-                @click="forwardThirty"
-                title="Forward 30 seconds"
-              >
-                <span>+30</span>
-              </div>
-              <div
-                class="control-button speed-button"
-                @click="changeSpeed"
-                title="Change playback speed"
-              >
+              <button class="control-button" @click="replayThirty">⟲ 30</button>
+              <button class="control-button" @click="prevSong">⏮</button>
+              <button class="control-button play-button" @click="togglePlay">
+                <span v-if="isPlaying">⏸</span>
+                <span v-else>▶</span>
+              </button>
+              <button class="control-button" @click="nextSong">⏭</button>
+              <button class="control-button" @click="forwardThirty">
+                ⟳ 30
+              </button>
+              <button class="control-button speed-button" @click="changeSpeed">
                 ${speed}x
-              </div>
+              </button>
             </div>
 
             <div class="player-timeline">
@@ -426,12 +473,11 @@
 
           <!-- Right section: Volume controls -->
           <div class="player-right">
-            <div
-              class="amplitude-mute control-button"
-              :class="isMuted ? 'amplitude-muted' : 'amplitude-not-muted'"
-              @click="toggleMute"
-              title="Mute/Unmute"
-            ></div>
+            <button class="control-button" @click="toggleMute">
+              <span v-if="isMuted">🔇</span>
+              <span v-else-if="volume < 50">🔉</span>
+              <span v-else>🔊</span>
+            </button>
 
             <div class="volume-container" @click="changeVolume">
               <div class="volume-bar" :style="{ width: `${volume}%` }">
@@ -457,7 +503,7 @@
           speedOptions: [0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3],
           songLoaded: [],
           socket: null,
-          allItems: {{ .podcastItems }},
+          allItems: {{.podcastItems}},
           isPlayerVisible: false,
           currentSongIndex: -1,
           isPlaying: false,
@@ -798,6 +844,61 @@
               .catch(function(error) {})
               .then(function() {});
             return false;
+          },
+          getEpisodeProgress(episodeId) {
+            if (!localStorage || !localStorage.songTimes) {
+              return 0;
+            }
+
+            try {
+              const songTimes = JSON.parse(localStorage.songTimes);
+              if (!songTimes[episodeId]) {
+                return 0;
+              }
+
+              // Find the episode to get its duration
+              const episode = this.allItems.find(item => item.ID === episodeId);
+              if (!episode || !episode.Duration || episode.Duration <= 0) {
+                return 0;
+              }
+
+              // Calculate percentage
+              const currentTime = songTimes[episodeId];
+              const percentage = (currentTime / episode.Duration) * 100;
+
+              // Cap at 100%
+              return Math.min(percentage, 100);
+            } catch (error) {
+              console.error('Error calculating episode progress:', error);
+              return 0;
+            }
+          },
+
+          isEpisodeFinished(episodeId) {
+            const progress = this.getEpisodeProgress(episodeId);
+            return progress >= 95; // Consider 95% or more as finished
+          },
+
+          getEpisodeProgressText(episodeId) {
+            if (this.isEpisodeFinished(episodeId)) {
+              return 'Finished';
+            }
+
+            if (!localStorage || !localStorage.songTimes) {
+              return '00:00';
+            }
+
+            try {
+              const songTimes = JSON.parse(localStorage.songTimes);
+              if (!songTimes[episodeId]) {
+                return '00:00';
+              }
+
+              // Format the time
+              return this.formatTime(songTimes[episodeId]);
+            } catch (error) {
+              return '00:00';
+            }
           }
         }
       });
